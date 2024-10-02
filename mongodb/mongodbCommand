@@ -1,0 +1,69 @@
+use springaivectordb
+db.createCollection("vector_store")
+
+
+// Assuming your search vector is a 1536-dimensional array
+var searchVector = Array(1536).fill().map(() => Math.random());
+
+db.vector_store.aggregate([
+    {
+        $addFields: {
+            dotProduct: {
+                $reduce: {
+                    input: {
+                        $zip: { inputs: ["$embedding", searchVector] }
+                    },
+                    initialValue: 0,
+                    in: {
+                        $add: [
+                            "$$value",
+                            { $multiply: [{ $arrayElemAt: ["$$this", 0] }, { $arrayElemAt: ["$$this", 1] }] }
+                        ]
+                    }
+                }
+            },
+            magnitudeA: {
+                $sqrt: {
+                    $reduce: {
+                        input: "$embedding",
+                        initialValue: 0,
+                        in: {
+                            $add: [
+                                "$$value",
+                                { $multiply: ["$$this", "$$this"] }
+                            ]
+                        }
+                    }
+                }
+            },
+            magnitudeB: {
+                $sqrt: {
+                    $reduce: {
+                        input: searchVector,
+                        initialValue: 0,
+                        in: {
+                            $add: [
+                                "$$value",
+                                { $multiply: ["$$this", "$$this"] }
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+    },
+    {
+        $addFields: {
+            cosineSimilarity: {
+                $divide: ["$dotProduct", { $multiply: ["$magnitudeA", "$magnitudeB"] }]
+            }
+        }
+    },
+    {
+        $sort: { cosineSimilarity: -1 }
+    },
+    {
+        $limit: 5 // Top 5 most similar documents
+    }
+])
+
